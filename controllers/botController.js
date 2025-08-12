@@ -1,6 +1,34 @@
 const Bot = require("../models/bot");
 const User = require("../models/User");
-const threeCommas = require("../utils/threeCommas");
+const axios = require("axios");
+const crypto = require("crypto");
+
+const THREE_COMMAS_API_KEY = process.env.THREE_COMMAS_API_KEY;
+const THREE_COMMAS_API_SECRET = process.env.THREE_COMMAS_API_SECRET;
+const BASE_URL = "https://api.3commas.io/public/api";
+const API_PREFIX = "/public/api";
+
+function buildStringToSign(path, queryString, bodyString) {
+  const qsPart = queryString ? `?${queryString}` : "";
+  const bodyPart = bodyString || "";
+  return `${API_PREFIX}${path}${qsPart}${bodyPart}`;
+}
+
+function createSignatureFromParts(path, queryString, bodyString) {
+  const stringToSign = buildStringToSign(path, queryString, bodyString);
+  console.log("3Commas Bot Creation - stringToSign:", {
+    path: `${API_PREFIX}${path}`,
+    hasQuery: Boolean(queryString),
+    hasBody: Boolean(bodyString),
+    bodyLength: bodyString ? Buffer.byteLength(bodyString, "utf8") : 0,
+    preview:
+      stringToSign.slice(0, 120) + (stringToSign.length > 120 ? "…" : ""),
+  });
+  return crypto
+    .createHmac("sha256", THREE_COMMAS_API_SECRET)
+    .update(stringToSign)
+    .digest("hex");
+}
 
 const isValidEnum = (val, options) => options.includes(val);
 
@@ -70,8 +98,11 @@ exports.createBot = async (req, res) => {
 
     const mappedBotType = botType === "single" ? "simple" : "composite";
 
-    const payload = {
+    // 3Commas bot creation payload
+    const botPayload = {
       name: botName,
+      account_id:
+        user.threeCommasAccountId || process.env.THREE_COMMAS_ACCOUNT_ID,
       pair,
       strategy: direction,
       bot_type: mappedBotType,
@@ -80,34 +111,51 @@ exports.createBot = async (req, res) => {
       start_order_type: startOrderType,
       take_profit_type: takeProfitType,
       take_profit: parseFloat(targetProfitPercent),
-      account_id: process.env.THREE_COMMAS_ACCOUNT_ID,
+      safety_order_type: "market",
+      safety_order_volume: parseFloat(baseOrderSize),
+      max_safety_orders: 5,
+      safety_order_step_percentage: 2.0,
+      safety_order_volume_type: "quote_currency",
+      max_active_deals: 1,
+      active: true,
     };
 
-    // ✅ Make the bot in 3Commas (but we don't care about their botId now)
     console.log("🔍 Attempting to create bot in 3Commas...");
-    console.log("📦 Bot payload being sent to 3Commas:", payload);
+    console.log("📦 Bot payload being sent to 3Commas:", botPayload);
 
-    // Since 3Commas API has limited permissions, we'll store the bot locally
-    // and you can create the actual bot manually in 3Commas dashboard
-    console.log("⚠️ 3Commas API has limited permissions - storing bot locally");
-    console.log("📋 Bot configuration for manual creation in 3Commas:");
-    console.log("   - Name:", payload.name);
-    console.log("   - Pair:", payload.pair);
-    console.log("   - Strategy:", payload.strategy);
-    console.log("   - Bot Type:", payload.bot_type);
-    console.log("   - Account ID:", payload.account_id);
-    console.log("   - Base Order Volume:", payload.base_order_volume);
-    console.log("   - Take Profit:", payload.take_profit);
-    console.log("   - Start Order Type:", payload.start_order_type);
-    console.log("   - Take Profit Type:", payload.take_profit_type);
+    // Create signature for 3Commas API
+    const path = "/ver1/bots/create_bot";
+    const payload = JSON.stringify(botPayload);
+    const signature = createSignatureFromParts(path, "", payload);
 
-    let threeCommasBotId = null; // Will be set when you create the bot manually
+    // Make request to 3Commas
+    let threeCommasBotId = null;
+    try {
+      const response = await axios.post(`${BASE_URL}${path}`, botPayload, {
+        headers: {
+          Apikey: THREE_COMMAS_API_KEY,
+          Signature: signature,
+          "Content-Type": "application/json",
+        },
+        timeout: 15000,
+      });
+
+      console.log("✅ 3Commas bot creation successful:", response.data);
+      threeCommasBotId = response.data.id;
+    } catch (error) {
+      console.error(
+        "❌ 3Commas bot creation failed:",
+        error?.response?.data || error
+      );
+      // Continue with local bot creation even if 3Commas fails
+    }
 
     // ✅ Save your own bot in MongoDB
     const newBot = new Bot({
       user: user._id,
       name: botName,
-      exchangeId: process.env.THREE_COMMAS_ACCOUNT_ID,
+      exchangeId:
+        user.threeCommasAccountId || process.env.THREE_COMMAS_ACCOUNT_ID,
       pair,
       strategy: direction,
       botType,
@@ -116,14 +164,15 @@ exports.createBot = async (req, res) => {
       startOrderType,
       takeProfitType,
       targetProfitPercent,
-      threeCommasBotId: threeCommasBotId, // optional if you want to track later
+      threeCommasBotId: threeCommasBotId,
     });
 
     await newBot.save();
 
     res.status(201).json({
       message: "Bot created successfully",
-      botId: newBot._id, // ✅ your bot ID
+      botId: newBot._id,
+      threeCommasBotId: threeCommasBotId,
       bot: newBot,
     });
   } catch (error) {
