@@ -221,3 +221,187 @@ exports.deleteBot = async (req, res) => {
     res.status(403).json({ message: error.message });
   }
 };
+
+// ✅ Emergency Stop Bot (immediate stop all deals)
+exports.emergencyStopBot = async (req, res) => {
+  const { botId } = req.params;
+  const { userId } = req.body;
+
+  try {
+    const bot = await validateOwnership(botId, userId);
+
+    if (!bot.threeCommasBotId) {
+      return res.status(400).json({ message: "Bot not linked to 3Commas" });
+    }
+
+    // Emergency stop bot in 3Commas
+    const path = `/ver1/bots/${bot.threeCommasBotId}/panic_sell`;
+    const signature = createSignatureFromParts(path, "", "");
+
+    try {
+      await axios.post(
+        `${BASE_URL}${path}`,
+        {},
+        {
+          headers: {
+            Apikey: THREE_COMMAS_API_KEY,
+            Signature: signature,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000,
+        }
+      );
+
+      console.log("✅ Bot emergency stopped in 3Commas successfully");
+    } catch (error) {
+      console.error(
+        "❌ Failed to emergency stop bot in 3Commas:",
+        error?.response?.data || error.message
+      );
+      return res.status(400).json({
+        message: "Failed to emergency stop bot in 3Commas",
+        error: error?.response?.data || error.message,
+      });
+    }
+
+    // Update bot status
+    bot.status = "stopped";
+    await bot.save();
+
+    res.status(200).json({
+      message: "Bot emergency stopped successfully",
+      botId: bot._id,
+      status: "stopped",
+    });
+  } catch (error) {
+    console.error("❌ Emergency stop error:", error.message);
+    res.status(403).json({ message: error.message });
+  }
+};
+
+// ✅ Get Bot Details with 3Commas Data
+exports.getBotDetails = async (req, res) => {
+  const { botId } = req.params;
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({ message: "User ID is required" });
+  }
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const bot = await Bot.findById(botId);
+    if (!bot || bot.user.toString() !== user._id.toString()) {
+      return res
+        .status(404)
+        .json({ message: "Bot not found or access denied" });
+    }
+
+    // Get additional data from 3Commas if available
+    let threeCommasData = null;
+    if (bot.threeCommasBotId) {
+      try {
+        const path = `/ver1/bots/${bot.threeCommasBotId}`;
+        const signature = createSignatureFromParts(path, "", "");
+
+        const response = await axios.get(`${BASE_URL}${path}`, {
+          headers: {
+            Apikey: THREE_COMMAS_API_KEY,
+            Signature: signature,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000,
+        });
+
+        threeCommasData = response.data;
+      } catch (error) {
+        console.error("Failed to get 3Commas data:", error.message);
+        // Continue without 3Commas data
+      }
+    }
+
+    res.status(200).json({
+      message: "Bot details fetched successfully",
+      bot: bot,
+      threeCommasData: threeCommasData,
+      hasThreeCommasData: !!threeCommasData,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching bot details:", error);
+    res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Get Bot Summary for Dashboard
+exports.getBotSummary = async (req, res) => {
+  const { userId } = req.query;
+
+  if (!userId) {
+    return res.status(400).json({ message: "User ID is required" });
+  }
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const bots = await Bot.find({ user: user._id });
+
+    if (bots.length === 0) {
+      return res.json({
+        message: "No bots found",
+        summary: {
+          totalBots: 0,
+          runningBots: 0,
+          pausedBots: 0,
+          stoppedBots: 0,
+          totalValue: 0,
+          totalProfit: 0,
+        },
+      });
+    }
+
+    // Calculate summary
+    const summary = {
+      totalBots: bots.length,
+      runningBots: bots.filter((bot) => bot.status === "running").length,
+      pausedBots: bots.filter((bot) => bot.status === "paused").length,
+      stoppedBots: bots.filter((bot) => bot.status === "stopped").length,
+      errorBots: bots.filter((bot) => bot.status === "error").length,
+      totalValue: bots.reduce((sum, bot) => sum + (bot.totalValue || 0), 0),
+      totalProfit: bots.reduce((sum, bot) => sum + (bot.totalProfit || 0), 0),
+      averageProfit:
+        bots.reduce((sum, bot) => sum + (bot.totalProfit || 0), 0) /
+        bots.length,
+    };
+
+    // Get top performing bots
+    const topBots = bots
+      .filter((bot) => bot.totalProfit > 0)
+      .sort((a, b) => (b.totalProfit || 0) - (a.totalProfit || 0))
+      .slice(0, 5);
+
+    res.status(200).json({
+      message: "Bot summary fetched successfully",
+      summary: summary,
+      topBots: topBots,
+      recentBots: bots
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .slice(0, 10),
+    });
+  } catch (error) {
+    console.error("❌ Error fetching bot summary:", error);
+    res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
