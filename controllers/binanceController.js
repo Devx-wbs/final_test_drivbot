@@ -4,11 +4,12 @@ const http = require("http");
 const crypto = require("crypto");
 const User = require("../models/User");
 const { encrypt, decrypt } = require("../utils/encrypt");
+const config = require("../config");
 
-const THREE_COMMAS_API_KEY = process.env.THREE_COMMAS_API_KEY;
-const THREE_COMMAS_API_SECRET = process.env.THREE_COMMAS_API_SECRET;
-const BASE_URL = "https://api.3commas.io/public/api";
-const API_PREFIX = "/public/api";
+const THREE_COMMAS_API_KEY = config.threeCommas.apiKey;
+const THREE_COMMAS_API_SECRET = config.threeCommas.apiSecret;
+const BASE_URL = config.threeCommas.baseUrl;
+const API_PREFIX = config.threeCommas.apiPrefix;
 
 // Helper to sign Binance API requests
 const signQuery = (query, secret) =>
@@ -752,5 +753,83 @@ exports.getSimpleWallet = async (req, res) => {
   } catch (err) {
     console.error("Simple wallet error:", err.message);
     return res.status(500).json({ error: "Failed to fetch wallet" });
+  }
+};
+
+// ✅ Test 3Commas connection
+exports.testThreeCommasConnection = async (req, res) => {
+  try {
+    assertThreeCommasEnv();
+
+    console.log("🧪 Testing 3Commas API Connection...");
+    console.log(
+      "📋 API Key:",
+      THREE_COMMAS_API_KEY
+        ? `${THREE_COMMAS_API_KEY.slice(0, 6)}...${THREE_COMMAS_API_KEY.slice(
+            -4
+          )}`
+        : "NOT SET"
+    );
+
+    // Test 1: Get accounts
+    console.log("🔍 Test 1: Getting accounts...");
+    const accountsPath = "/ver1/accounts";
+    const accountsSignature = createSignatureFromParts(accountsPath, "", "");
+
+    const accountsResponse = await threeCommasAPI.get(accountsPath, {
+      headers: {
+        Apikey: THREE_COMMAS_API_KEY,
+        Signature: accountsSignature,
+      },
+      timeout: 15000,
+    });
+
+    console.log("✅ Accounts retrieved successfully");
+    console.log("📊 Total accounts:", accountsResponse.data.length);
+
+    // Test 2: Get bots
+    console.log("🔍 Test 2: Getting bots...");
+    const botsPath = "/ver1/bots";
+    const botsSignature = createSignatureFromParts(botsPath, "", "");
+
+    const botsResponse = await threeCommasAPI.get(botsPath, {
+      headers: {
+        Apikey: THREE_COMMAS_API_KEY,
+        Signature: botsSignature,
+      },
+      timeout: 15000,
+    });
+
+    console.log("✅ Bots retrieved successfully");
+    console.log("📊 Total bots:", botsResponse.data.length);
+
+    return res.json({
+      success: true,
+      message: "3Commas connection test successful",
+      accounts: {
+        total: accountsResponse.data.length,
+        binance: accountsResponse.data.filter(
+          (acc) => acc.account_type === "binance"
+        ).length,
+        data: accountsResponse.data,
+      },
+      bots: {
+        total: botsResponse.data.length,
+        active: botsResponse.data.filter((bot) => bot.is_enabled).length,
+        data: botsResponse.data,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "❌ 3Commas connection test failed:",
+      error?.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "3Commas connection test failed",
+      error: error?.response?.data || error.message,
+      status: error?.response?.status,
+    });
   }
 };
