@@ -51,7 +51,7 @@ exports.createBot = async (req, res) => {
     safetyOrderStepPercentage,
     stopLossPercentage,
     cooldown,
-    note
+    note,
   } = req.body;
 
   // 🛡 Enhanced Validation
@@ -67,17 +67,17 @@ exports.createBot = async (req, res) => {
     !takeProfitType ||
     !targetProfitPercent
   ) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      message: "All required fields are missing. Please check your input." 
+      message: "All required fields are missing. Please check your input.",
     });
   }
 
   // Validate pair format (e.g., BTC_USDT, ETH_USDT)
   if (!/^[A-Z0-9]+_[A-Z0-9]+$/.test(pair)) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      message: "Invalid pair format. Use format like BTC_USDT, ETH_USDT" 
+      message: "Invalid pair format. Use format like BTC_USDT, ETH_USDT",
     });
   }
 
@@ -90,48 +90,60 @@ exports.createBot = async (req, res) => {
   if (!isValidEnum(botType, ["single", "multi"])) {
     return res
       .status(400)
-      .json({ success: false, message: "Bot type must be 'single' or 'multi'" });
+      .json({
+        success: false,
+        message: "Bot type must be 'single' or 'multi'",
+      });
   }
 
   if (!isValidEnum(profitCurrency, ["quote", "base"])) {
     return res
       .status(400)
-      .json({ success: false, message: "Profit currency must be 'quote' or 'base'" });
+      .json({
+        success: false,
+        message: "Profit currency must be 'quote' or 'base'",
+      });
   }
 
   if (!isValidEnum(startOrderType, ["market", "limit"])) {
     return res
       .status(400)
-      .json({ success: false, message: "Start order type must be 'market' or 'limit'" });
+      .json({
+        success: false,
+        message: "Start order type must be 'market' or 'limit'",
+      });
   }
 
   if (!isValidEnum(takeProfitType, ["total", "step"])) {
     return res
       .status(400)
-      .json({ success: false, message: "Take profit type must be 'total' or 'step'" });
+      .json({
+        success: false,
+        message: "Take profit type must be 'total' or 'step'",
+      });
   }
 
   // Validate numeric values
   if (baseOrderSize <= 0) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Base order size must be greater than 0" 
+    return res.status(400).json({
+      success: false,
+      message: "Base order size must be greater than 0",
     });
   }
 
   if (targetProfitPercent <= 0 || targetProfitPercent > 100) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Target profit percentage must be between 0 and 100" 
+    return res.status(400).json({
+      success: false,
+      message: "Target profit percentage must be between 0 and 100",
     });
   }
 
   try {
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "User not found. Please check your user ID." 
+        message: "User not found. Please check your user ID.",
       });
     }
 
@@ -139,20 +151,22 @@ exports.createBot = async (req, res) => {
     if (!user.threeCommasAccountId) {
       return res.status(400).json({
         success: false,
-        message: "No 3Commas account found. Please connect your Binance account first.",
+        message:
+          "No 3Commas account found. Please connect your Binance account first.",
       });
     }
 
     // Check if bot name already exists for this user
-    const existingBot = await Bot.findOne({ 
-      user: user._id, 
-      name: botName 
+    const existingBot = await Bot.findOne({
+      user: user._id,
+      name: botName,
     });
-    
+
     if (existingBot) {
       return res.status(400).json({
         success: false,
-        message: "A bot with this name already exists. Please choose a different name."
+        message:
+          "A bot with this name already exists. Please choose a different name.",
       });
     }
 
@@ -173,19 +187,24 @@ exports.createBot = async (req, res) => {
       safety_order_type: "market",
       safety_order_volume: parseFloat(safetyOrderVolume || baseOrderSize),
       max_safety_orders: parseInt(maxSafetyOrders || 5),
-      safety_order_step_percentage: parseFloat(safetyOrderStepPercentage || 2.0),
+      safety_order_step_percentage: parseFloat(
+        safetyOrderStepPercentage || 2.0
+      ),
       safety_order_volume_type: "quote_currency",
       max_active_deals: 1,
       active: true,
+      // Required 3Commas parameters that were missing
+      pairs: [pair], // Required: array of trading pairs
+      martingale_volume_coefficient: 1.0, // Required: volume multiplier for safety orders
+      martingale_step_coefficient: 1.0, // Required: step multiplier for safety orders
+      active_safety_orders_count: parseInt(maxSafetyOrders || 5), // Required: number of active safety orders
+      strategy_list: [], // Required: array of strategies
       // Additional required fields for 3Commas
-      martingale_volume_coefficient: 1.0,
-      martingale_step_coefficient: 1.0,
       stop_loss_percentage: parseFloat(stopLossPercentage || 0),
       cooldown: parseInt(cooldown || 0),
       btc_price_limit: 0,
-      strategy_list: [],
       // For composite bots
-      pairs: botType === "multi" ? [pair] : undefined,
+      pairs: botType === "multi" ? [pair] : [pair], // Always provide pairs array
       // Required for all bots
       base_order_volume_type: "quote_currency",
       safety_order_volume_type: "quote_currency",
@@ -228,7 +247,8 @@ exports.createBot = async (req, res) => {
         success: false,
         message: "Failed to create bot in 3Commas",
         error: error?.response?.data || error.message,
-        details: "Please check your 3Commas account configuration and try again.",
+        details:
+          "Please check your 3Commas account configuration and try again.",
       });
     }
 
@@ -409,9 +429,9 @@ exports.getBotStats = async (req, res) => {
     const { botId } = req.params;
 
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "userId is required" 
+        message: "userId is required",
       });
     }
 
@@ -419,7 +439,8 @@ exports.getBotStats = async (req, res) => {
     if (!user || !user.threeCommasAccountId) {
       return res.status(400).json({
         success: false,
-        message: "No 3Commas account found. Please connect your Binance account first.",
+        message:
+          "No 3Commas account found. Please connect your Binance account first.",
       });
     }
 
@@ -429,14 +450,14 @@ exports.getBotStats = async (req, res) => {
       if (!bot || bot.user.toString() !== user._id.toString()) {
         return res.status(404).json({
           success: false,
-          message: "Bot not found or access denied"
+          message: "Bot not found or access denied",
         });
       }
 
       if (!bot.threeCommasBotId) {
         return res.status(400).json({
           success: false,
-          message: "Bot not linked to 3Commas"
+          message: "Bot not linked to 3Commas",
         });
       }
 
@@ -455,18 +476,24 @@ exports.getBotStats = async (req, res) => {
         });
 
         const botData = response.data;
-        
+
         // Calculate performance metrics
         const performance = {
           totalDeals: botData.total_deals || 0,
           activeDeals: botData.active_deals || 0,
           totalProfit: botData.total_profit || 0,
           totalProfitPercent: botData.total_profit_percentage || 0,
-          averageProfit: botData.total_deals > 0 ? botData.total_profit / botData.total_deals : 0,
-          winRate: botData.win_deals > 0 ? (botData.win_deals / botData.total_deals) * 100 : 0,
+          averageProfit:
+            botData.total_deals > 0
+              ? botData.total_profit / botData.total_deals
+              : 0,
+          winRate:
+            botData.win_deals > 0
+              ? (botData.win_deals / botData.total_deals) * 100
+              : 0,
           lastDealAt: botData.last_deal_at || null,
           createdAt: botData.created_at || null,
-          updatedAt: botData.updated_at || null
+          updatedAt: botData.updated_at || null,
         };
 
         return res.json({
@@ -474,10 +501,13 @@ exports.getBotStats = async (req, res) => {
           message: "Bot statistics retrieved successfully",
           bot: bot,
           threeCommasData: botData,
-          performance: performance
+          performance: performance,
         });
       } catch (error) {
-        console.error("❌ Failed to get bot stats from 3Commas:", error?.response?.data || error.message);
+        console.error(
+          "❌ Failed to get bot stats from 3Commas:",
+          error?.response?.data || error.message
+        );
         return res.status(400).json({
           success: false,
           message: "Failed to get bot statistics from 3Commas",
@@ -487,7 +517,7 @@ exports.getBotStats = async (req, res) => {
     } else {
       // Get all bots stats for user
       const bots = await Bot.find({ user: user._id });
-      
+
       if (bots.length === 0) {
         return res.json({
           success: true,
@@ -497,8 +527,8 @@ exports.getBotStats = async (req, res) => {
           summary: {
             totalProfit: 0,
             activeBots: 0,
-            totalDeals: 0
-          }
+            totalDeals: 0,
+          },
         });
       }
 
@@ -522,10 +552,22 @@ exports.getBotStats = async (req, res) => {
 
         const summary = {
           totalBots: userBots.length,
-          activeBots: userBots.filter(bot => bot.is_enabled).length,
-          totalProfit: userBots.reduce((sum, bot) => sum + (bot.total_profit || 0), 0),
-          totalDeals: userBots.reduce((sum, bot) => sum + (bot.total_deals || 0), 0),
-          averageProfit: userBots.length > 0 ? userBots.reduce((sum, bot) => sum + (bot.total_profit || 0), 0) / userBots.length : 0
+          activeBots: userBots.filter((bot) => bot.is_enabled).length,
+          totalProfit: userBots.reduce(
+            (sum, bot) => sum + (bot.total_profit || 0),
+            0
+          ),
+          totalDeals: userBots.reduce(
+            (sum, bot) => sum + (bot.total_deals || 0),
+            0
+          ),
+          averageProfit:
+            userBots.length > 0
+              ? userBots.reduce(
+                  (sum, bot) => sum + (bot.total_profit || 0),
+                  0
+                ) / userBots.length
+              : 0,
         };
 
         return res.json({
@@ -534,11 +576,14 @@ exports.getBotStats = async (req, res) => {
           totalBots: bots.length,
           bots: bots,
           threeCommasBots: userBots,
-          summary: summary
+          summary: summary,
         });
       } catch (error) {
-        console.error("❌ Failed to get bots summary from 3Commas:", error?.response?.data || error.message);
-        
+        console.error(
+          "❌ Failed to get bots summary from 3Commas:",
+          error?.response?.data || error.message
+        );
+
         // Return local bot data even if 3Commas fails
         return res.json({
           success: true,
@@ -547,11 +592,11 @@ exports.getBotStats = async (req, res) => {
           bots: bots,
           summary: {
             totalBots: bots.length,
-            activeBots: bots.filter(bot => bot.status === "running").length,
+            activeBots: bots.filter((bot) => bot.status === "running").length,
             totalProfit: 0,
             totalDeals: 0,
-            averageProfit: 0
-          }
+            averageProfit: 0,
+          },
         });
       }
     }
@@ -572,17 +617,17 @@ exports.updateBot = async (req, res) => {
     const { userId, ...updateData } = req.body;
 
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "userId is required" 
+        message: "userId is required",
       });
     }
 
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "User not found" 
+        message: "User not found",
       });
     }
 
@@ -590,14 +635,14 @@ exports.updateBot = async (req, res) => {
     if (!bot || bot.user.toString() !== user._id.toString()) {
       return res.status(404).json({
         success: false,
-        message: "Bot not found or access denied"
+        message: "Bot not found or access denied",
       });
     }
 
     if (!bot.threeCommasBotId) {
       return res.status(400).json({
         success: false,
-        message: "Bot not linked to 3Commas"
+        message: "Bot not linked to 3Commas",
       });
     }
 
@@ -618,7 +663,10 @@ exports.updateBot = async (req, res) => {
 
       console.log("✅ Bot updated in 3Commas successfully");
     } catch (error) {
-      console.error("❌ Failed to update bot in 3Commas:", error?.response?.data || error.message);
+      console.error(
+        "❌ Failed to update bot in 3Commas:",
+        error?.response?.data || error.message
+      );
       return res.status(400).json({
         success: false,
         message: "Failed to update bot in 3Commas",
@@ -627,16 +675,15 @@ exports.updateBot = async (req, res) => {
     }
 
     // Update local bot data
-    const updatedBot = await Bot.findByIdAndUpdate(
-      botId,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    const updatedBot = await Bot.findByIdAndUpdate(botId, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
     res.json({
       success: true,
       message: "Bot updated successfully",
-      bot: updatedBot
+      bot: updatedBot,
     });
   } catch (error) {
     console.error("❌ Update bot error:", error);
@@ -655,9 +702,9 @@ exports.getBotPerformance = async (req, res) => {
     const { userId } = req.query;
 
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "userId is required" 
+        message: "userId is required",
       });
     }
 
@@ -665,7 +712,8 @@ exports.getBotPerformance = async (req, res) => {
     if (!user || !user.threeCommasAccountId) {
       return res.status(400).json({
         success: false,
-        message: "No 3Commas account found. Please connect your Binance account first.",
+        message:
+          "No 3Commas account found. Please connect your Binance account first.",
       });
     }
 
@@ -673,14 +721,14 @@ exports.getBotPerformance = async (req, res) => {
     if (!bot || bot.user.toString() !== user._id.toString()) {
       return res.status(404).json({
         success: false,
-        message: "Bot not found or access denied"
+        message: "Bot not found or access denied",
       });
     }
 
     if (!bot.threeCommasBotId) {
       return res.status(400).json({
         success: false,
-        message: "Bot not linked to 3Commas"
+        message: "Bot not linked to 3Commas",
       });
     }
 
@@ -699,24 +747,50 @@ exports.getBotPerformance = async (req, res) => {
       });
 
       const deals = response.data || [];
-      
+
       // Calculate performance metrics
       const performance = {
         totalDeals: deals.length,
-        completedDeals: deals.filter(deal => deal.status === 'finished').length,
-        activeDeals: deals.filter(deal => deal.status === 'active').length,
-        totalProfit: deals.reduce((sum, deal) => sum + (deal.final_profit || 0), 0),
-        totalProfitPercent: deals.reduce((sum, deal) => sum + (deal.final_profit_percentage || 0), 0),
-        averageProfit: deals.length > 0 ? deals.reduce((sum, deal) => sum + (deal.final_profit || 0), 0) / deals.length : 0,
-        winRate: deals.length > 0 ? (deals.filter(deal => (deal.final_profit || 0) > 0).length / deals.length) * 100 : 0,
-        bestDeal: deals.length > 0 ? Math.max(...deals.map(deal => deal.final_profit || 0)) : 0,
-        worstDeal: deals.length > 0 ? Math.min(...deals.map(deal => deal.final_profit || 0)) : 0,
-        averageDealDuration: deals.length > 0 ? 
-          deals.reduce((sum, deal) => {
-            const start = new Date(deal.created_at);
-            const end = deal.finished_at ? new Date(deal.finished_at) : new Date();
-            return sum + (end - start);
-          }, 0) / deals.length : 0
+        completedDeals: deals.filter((deal) => deal.status === "finished")
+          .length,
+        activeDeals: deals.filter((deal) => deal.status === "active").length,
+        totalProfit: deals.reduce(
+          (sum, deal) => sum + (deal.final_profit || 0),
+          0
+        ),
+        totalProfitPercent: deals.reduce(
+          (sum, deal) => sum + (deal.final_profit_percentage || 0),
+          0
+        ),
+        averageProfit:
+          deals.length > 0
+            ? deals.reduce((sum, deal) => sum + (deal.final_profit || 0), 0) /
+              deals.length
+            : 0,
+        winRate:
+          deals.length > 0
+            ? (deals.filter((deal) => (deal.final_profit || 0) > 0).length /
+                deals.length) *
+              100
+            : 0,
+        bestDeal:
+          deals.length > 0
+            ? Math.max(...deals.map((deal) => deal.final_profit || 0))
+            : 0,
+        worstDeal:
+          deals.length > 0
+            ? Math.min(...deals.map((deal) => deal.final_profit || 0))
+            : 0,
+        averageDealDuration:
+          deals.length > 0
+            ? deals.reduce((sum, deal) => {
+                const start = new Date(deal.created_at);
+                const end = deal.finished_at
+                  ? new Date(deal.finished_at)
+                  : new Date();
+                return sum + (end - start);
+              }, 0) / deals.length
+            : 0,
       };
 
       return res.json({
@@ -724,10 +798,13 @@ exports.getBotPerformance = async (req, res) => {
         message: "Bot performance retrieved successfully",
         bot: bot,
         deals: deals,
-        performance: performance
+        performance: performance,
       });
     } catch (error) {
-      console.error("❌ Failed to get bot deals from 3Commas:", error?.response?.data || error.message);
+      console.error(
+        "❌ Failed to get bot deals from 3Commas:",
+        error?.response?.data || error.message
+      );
       return res.status(400).json({
         success: false,
         message: "Failed to get bot deals from 3Commas",
@@ -751,9 +828,9 @@ exports.getBotDeals = async (req, res) => {
     const { userId, limit = 50, offset = 0 } = req.query;
 
     if (!userId) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "userId is required" 
+        message: "userId is required",
       });
     }
 
@@ -761,7 +838,8 @@ exports.getBotDeals = async (req, res) => {
     if (!user || !user.threeCommasAccountId) {
       return res.status(400).json({
         success: false,
-        message: "No 3Commas account found. Please connect your Binance account first.",
+        message:
+          "No 3Commas account found. Please connect your Binance account first.",
       });
     }
 
@@ -769,14 +847,14 @@ exports.getBotDeals = async (req, res) => {
     if (!bot || bot.user.toString() !== user._id.toString()) {
       return res.status(404).json({
         success: false,
-        message: "Bot not found or access denied"
+        message: "Bot not found or access denied",
       });
     }
 
     if (!bot.threeCommasBotId) {
       return res.status(400).json({
         success: false,
-        message: "Bot not linked to 3Commas"
+        message: "Bot not linked to 3Commas",
       });
     }
 
@@ -796,7 +874,7 @@ exports.getBotDeals = async (req, res) => {
       });
 
       const deals = response.data || [];
-      
+
       return res.json({
         success: true,
         message: "Bot deals retrieved successfully",
@@ -805,11 +883,14 @@ exports.getBotDeals = async (req, res) => {
         pagination: {
           limit: parseInt(limit),
           offset: parseInt(offset),
-          total: deals.length
-        }
+          total: deals.length,
+        },
       });
     } catch (error) {
-      console.error("❌ Failed to get bot deals from 3Commas:", error?.response?.data || error.message);
+      console.error(
+        "❌ Failed to get bot deals from 3Commas:",
+        error?.response?.data || error.message
+      );
       return res.status(400).json({
         success: false,
         message: "Failed to get bot deals from 3Commas",
@@ -833,17 +914,17 @@ exports.duplicateBot = async (req, res) => {
     const { userId, newName } = req.body;
 
     if (!userId || !newName) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: "userId and newName are required" 
+        message: "userId and newName are required",
       });
     }
 
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "User not found" 
+        message: "User not found",
       });
     }
 
@@ -851,20 +932,21 @@ exports.duplicateBot = async (req, res) => {
     if (!originalBot || originalBot.user.toString() !== user._id.toString()) {
       return res.status(404).json({
         success: false,
-        message: "Bot not found or access denied"
+        message: "Bot not found or access denied",
       });
     }
 
     // Check if new name already exists
-    const existingBot = await Bot.findOne({ 
-      user: user._id, 
-      name: newName 
+    const existingBot = await Bot.findOne({
+      user: user._id,
+      name: newName,
     });
-    
+
     if (existingBot) {
       return res.status(400).json({
         success: false,
-        message: "A bot with this name already exists. Please choose a different name."
+        message:
+          "A bot with this name already exists. Please choose a different name.",
       });
     }
 
@@ -887,12 +969,15 @@ exports.duplicateBot = async (req, res) => {
       safety_order_volume_type: "quote_currency",
       max_active_deals: 1,
       active: false, // Start as paused
-      martingale_volume_coefficient: 1.0,
-      martingale_step_coefficient: 1.0,
+      // Required 3Commas parameters
+      pairs: [originalBot.pair], // Required: array of trading pairs
+      martingale_volume_coefficient: 1.0, // Required: volume multiplier for safety orders
+      martingale_step_coefficient: 1.0, // Required: step multiplier for safety orders
+      active_safety_orders_count: originalBot.maxSafetyOrders, // Required: number of active safety orders
+      strategy_list: [], // Required: array of strategies
       stop_loss_percentage: originalBot.stopLossPercentage,
       cooldown: originalBot.cooldown,
       btc_price_limit: 0,
-      strategy_list: [],
       base_order_volume_type: "quote_currency",
       safety_order_volume_type: "quote_currency",
       note: `Bot duplicated from ${originalBot.name} for ${userId}`,
@@ -919,7 +1004,10 @@ exports.duplicateBot = async (req, res) => {
       threeCommasBotId = response.data.id;
       threeCommasResponse = response.data;
     } catch (error) {
-      console.error("❌ 3Commas bot duplication failed:", error?.response?.data || error.message);
+      console.error(
+        "❌ 3Commas bot duplication failed:",
+        error?.response?.data || error.message
+      );
       return res.status(400).json({
         success: false,
         message: "Failed to duplicate bot in 3Commas",
@@ -948,7 +1036,7 @@ exports.duplicateBot = async (req, res) => {
       note: `Bot duplicated from ${originalBot.name} for ${userId}`,
       threeCommasBotId: threeCommasBotId,
       status: "paused", // Start as paused
-      configVersion: originalBot.configVersion + 1
+      configVersion: originalBot.configVersion + 1,
     });
 
     await newBot.save();
