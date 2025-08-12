@@ -164,49 +164,66 @@ exports.createBot = async (req, res) => {
 
     const mappedBotType = botType === "single" ? "simple" : "composite";
 
-    // Enhanced 3Commas bot creation payload
+    // Enhanced 3Commas bot creation payload - Complete rewrite with all required fields
     const botPayload = {
+      // Basic bot configuration
       name: botName,
       account_id: user.threeCommasAccountId,
       pair: pair,
       strategy: direction,
       bot_type: mappedBotType,
-      profit_currency: profitCurrency,
+
+      // Order configuration
       base_order_volume: parseFloat(baseOrderSize),
+      base_order_volume_type: "quote_currency",
       start_order_type: startOrderType,
+
+      // Profit configuration
       take_profit_type: takeProfitType,
       take_profit: parseFloat(targetProfitPercent),
+      profit_currency: profitCurrency,
+
+      // Safety orders configuration
       safety_order_type: "market",
       safety_order_volume: parseFloat(safetyOrderVolume || baseOrderSize),
+      safety_order_volume_type: "quote_currency",
       max_safety_orders: parseInt(maxSafetyOrders || 5),
       safety_order_step_percentage: parseFloat(
         safetyOrderStepPercentage || 2.0
       ),
-      safety_order_volume_type: "quote_currency",
-      max_active_deals: 1,
-      active: true,
-      // Required 3Commas parameters that were missing
+
+      // Required 3Commas parameters
       pairs: [pair], // Required: array of trading pairs
       martingale_volume_coefficient: 1.0, // Required: volume multiplier for safety orders
       martingale_step_coefficient: 1.0, // Required: step multiplier for safety orders
       active_safety_orders_count: parseInt(maxSafetyOrders || 5), // Required: number of active safety orders
       strategy_list: [], // Required: array of strategies
-      // Additional required fields for 3Commas
+
+      // Deal configuration
+      max_active_deals: 1,
+
+      // Risk management
       stop_loss_percentage: parseFloat(stopLossPercentage || 0),
       cooldown: parseInt(cooldown || 0),
+
+      // Bot state
+      active: true,
+
+      // Additional required fields
       btc_price_limit: 0,
-      // Required for all bots
-      base_order_volume_type: "quote_currency",
-      safety_order_volume_type: "quote_currency",
-      // Optional but recommended
       note: note || `Bot created via API for ${userId}`,
     };
 
     console.log("🔍 Attempting to create bot in 3Commas...");
-    console.log("📦 Bot payload being sent to 3Commas:", botPayload);
+    console.log(
+      "📦 Bot payload being sent to 3Commas:",
+      JSON.stringify(botPayload, null, 2)
+    );
+    console.log("🔗 3Commas API Endpoint:", `${BASE_URL}${path}`);
+    console.log("🔑 User 3Commas Account ID:", user.threeCommasAccountId);
 
     // Create signature for 3Commas API
-    const path = "/ver1/bots/create_bot";
+    const path = "/ver1/bots"; // Try the standard endpoint first
     const payload = JSON.stringify(botPayload);
     const signature = createSignatureFromParts(path, "", payload);
 
@@ -232,6 +249,23 @@ exports.createBot = async (req, res) => {
         "❌ 3Commas bot creation failed:",
         error?.response?.data || error.message
       );
+
+      // Enhanced error logging
+      if (error.response) {
+        console.error("📊 3Commas Response Status:", error.response.status);
+        console.error("📊 3Commas Response Headers:", error.response.headers);
+        console.error(
+          "📊 3Commas Response Data:",
+          JSON.stringify(error.response.data, null, 2)
+        );
+      }
+
+      if (error.request) {
+        console.error(
+          "📡 Request was made but no response received:",
+          error.request
+        );
+      }
 
       return res.status(400).json({
         success: false,
