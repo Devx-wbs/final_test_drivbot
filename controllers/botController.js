@@ -88,39 +88,31 @@ exports.createBot = async (req, res) => {
   }
 
   if (!isValidEnum(botType, ["single", "multi"])) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Bot type must be 'single' or 'multi'",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Bot type must be 'single' or 'multi'",
+    });
   }
 
   if (!isValidEnum(profitCurrency, ["quote", "base"])) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Profit currency must be 'quote' or 'base'",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Profit currency must be 'quote' or 'base'",
+    });
   }
 
   if (!isValidEnum(startOrderType, ["market", "limit"])) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Start order type must be 'market' or 'limit'",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Start order type must be 'market' or 'limit'",
+    });
   }
 
   if (!isValidEnum(takeProfitType, ["total", "step"])) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Take profit type must be 'total' or 'step'",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Take profit type must be 'total' or 'step'",
+    });
   }
 
   // Validate numeric values
@@ -203,8 +195,6 @@ exports.createBot = async (req, res) => {
       stop_loss_percentage: parseFloat(stopLossPercentage || 0),
       cooldown: parseInt(cooldown || 0),
       btc_price_limit: 0,
-      // For composite bots
-      pairs: botType === "multi" ? [pair] : [pair], // Always provide pairs array
       // Required for all bots
       base_order_volume_type: "quote_currency",
       safety_order_volume_type: "quote_currency",
@@ -216,7 +206,7 @@ exports.createBot = async (req, res) => {
     console.log("📦 Bot payload being sent to 3Commas:", botPayload);
 
     // Create signature for 3Commas API
-    const path = "/ver1/bots";
+    const path = "/ver1/bots/create_bot";
     const payload = JSON.stringify(botPayload);
     const signature = createSignatureFromParts(path, "", payload);
 
@@ -983,7 +973,8 @@ exports.duplicateBot = async (req, res) => {
       note: `Bot duplicated from ${originalBot.name} for ${userId}`,
     };
 
-    const path = "/ver1/bots";
+    // Create signature for 3Commas API - Fixed endpoint
+    const path = "/ver1/bots/create_bot";
     const payload = JSON.stringify(botPayload);
     const signature = createSignatureFromParts(path, "", payload);
 
