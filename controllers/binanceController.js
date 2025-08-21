@@ -51,7 +51,6 @@ async function createThreeCommasExchangeAccount({ name, apiKey, apiSecret }) {
       type: "binance",
       api_key: apiKey,
       secret: apiSecret,
-      is_sandbox: false,
     };
 
     const response = await threeCommas.post("/ver1/accounts/new", payload, {
@@ -59,10 +58,12 @@ async function createThreeCommasExchangeAccount({ name, apiKey, apiSecret }) {
     });
     return { ok: true, data: response.data };
   } catch (error) {
+    const data = error?.response?.data;
     return {
       ok: false,
-      message: error?.response?.data || error.message,
+      message: data || error.message,
       status: error?.response?.status,
+      error_attributes: data?.error_attributes,
     };
   }
 }

@@ -1,31 +1,32 @@
 const axios = require("axios");
 const crypto = require("crypto");
+const config = require("../config");
 
 const API_KEY = process.env.THREE_COMMAS_API_KEY;
 const API_SECRET = process.env.THREE_COMMAS_API_SECRET;
 
-function generateSignature(path, body = "") {
-  const message = path + body;
+function generateSignature(fullPathWithPrefix, bodyString) {
+  const message = `${fullPathWithPrefix}${bodyString || ""}`;
   return crypto.createHmac("sha256", API_SECRET).update(message).digest("hex");
 }
 
 const threeCommas = axios.create({
-  baseURL: "https://api.3commas.io/ver1",
+  // Must include /public/api so that the path used for the signature matches server expectation
+  baseURL: config.threeCommas.baseUrl, // e.g., https://api.3commas.io/public/api
 });
 
-threeCommas.interceptors.request.use((config) => {
-  const urlObj = new URL(config.baseURL + config.url);
-  const path = urlObj.pathname + urlObj.search;
+threeCommas.interceptors.request.use((reqConfig) => {
+  const composedUrl = new URL(reqConfig.baseURL + reqConfig.url);
+  const fullPath = composedUrl.pathname + composedUrl.search; // includes /public/api prefix
 
-  const body = config.data ? JSON.stringify(config.data) : "";
+  const body = reqConfig.data ? JSON.stringify(reqConfig.data) : "";
+  const signature = generateSignature(fullPath, body);
 
-  const signature = generateSignature(path, body);
+  reqConfig.headers["Apikey"] = API_KEY;
+  reqConfig.headers["Signature"] = signature;
+  reqConfig.headers["Content-Type"] = "application/json";
 
-  config.headers["APIKEY"] = API_KEY;
-  config.headers["Signature"] = signature;
-  config.headers["Content-Type"] = "application/json";
-
-  return config;
+  return reqConfig;
 });
 
 module.exports = threeCommas;
