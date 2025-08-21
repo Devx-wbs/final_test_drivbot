@@ -25,6 +25,10 @@ const config = {
   validate: function () {
     const errors = [];
 
+    if (!process.env.ENCRYPT_SECRET || !process.env.ENCRYPT_IV) {
+      errors.push("ENCRYPT_SECRET and ENCRYPT_IV are required for encryption");
+    }
+
     if (!this.threeCommas.apiKey) {
       errors.push("THREE_COMMAS_API_KEY is required");
     }
