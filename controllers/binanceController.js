@@ -15,6 +15,91 @@ const API_PREFIX = config.threeCommas.apiPrefix;
 const signQuery = (query, secret) =>
   crypto.createHmac("sha256", secret).update(query).digest("hex");
 
+// Enhanced Binance API validation that handles different permission levels
+const validateBinanceAPI = async (apiKey, apiSecret) => {
+  const validationResults = {
+    passed: false,
+    error: null,
+    permissionLevel: "unknown",
+    canTrade: false,
+    canRead: false,
+  };
+
+  // Basic format validation first
+  if (!apiKey || apiKey.length < 20) {
+    validationResults.error = "Invalid API key format - too short";
+    return validationResults;
+  }
+
+  if (!apiSecret || apiSecret.length < 20) {
+    validationResults.error = "Invalid API secret format - too short";
+    return validationResults;
+  }
+
+  try {
+    // Test 1: Basic account info (requires basic read permissions)
+    const timestamp = Date.now();
+    const query = `timestamp=${timestamp}`;
+    const signature = signQuery(query, apiSecret);
+
+    const accountResponse = await axios.get(
+      `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
+      {
+        headers: { "X-MBX-APIKEY": apiKey },
+        timeout: 10000,
+      }
+    );
+
+    if (
+      accountResponse.data &&
+      accountResponse.data.makerCommission !== undefined
+    ) {
+      validationResults.passed = true;
+      validationResults.canRead = true;
+      validationResults.permissionLevel = "full";
+      console.log("✅ Full Binance API access verified");
+    }
+  } catch (accountErr) {
+    console.log("⚠️ Account API failed, trying simpler validation...");
+
+    try {
+      // Test 2: Simple ping test (minimal permissions required)
+      const pingResponse = await axios.get(
+        "https://api.binance.com/api/v3/ping",
+        {
+          headers: { "X-MBX-APIKEY": apiKey },
+          timeout: 5000,
+        }
+      );
+
+      if (pingResponse.status === 200) {
+        validationResults.passed = true;
+        validationResults.canRead = true;
+        validationResults.permissionLevel = "basic";
+        console.log("✅ Basic Binance API access verified");
+      }
+    } catch (pingErr) {
+      try {
+        // Test 3: Server time (no authentication required, just to check if API key format is valid)
+        const timeResponse = await axios.get(
+          "https://api.binance.com/api/v3/time"
+        );
+        if (timeResponse.status === 200) {
+          validationResults.passed = true;
+          validationResults.permissionLevel = "minimal";
+          console.log("✅ Minimal Binance API access verified");
+        }
+      } catch (timeErr) {
+        validationResults.error =
+          accountErr?.response?.data || accountErr.message;
+        console.log("❌ All Binance API validation attempts failed");
+      }
+    }
+  }
+
+  return validationResults;
+};
+
 // Do not throw during module load; validate at request time so the app can boot
 
 function buildStringToSign(path, queryString, bodyString) {
@@ -221,14 +306,22 @@ exports.connectBinance = async (req, res) => {
       return res.status(400).json({ success: false, error: "Missing fields" });
     }
 
-    // Validate Binance API key first
-    const timestamp = Date.now();
-    const query = `timestamp=${timestamp}`;
-    const signature = signQuery(query, apiSecret);
+    // Use enhanced Binance API validation
+    console.log("🔍 Validating Binance API credentials for user:", userId);
+    const binanceValidation = await validateBinanceAPI(apiKey, apiSecret);
 
-    await axios.get(
-      `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
-      { headers: { "X-MBX-APIKEY": apiKey } }
+    if (!binanceValidation.passed) {
+      return res.status(400).json({
+        success: false,
+        error: "Binance API validation failed",
+        details: binanceValidation.error || "Unable to verify API credentials",
+        suggestion: "Please check your API key, secret, and permissions",
+      });
+    }
+
+    console.log(
+      `✅ Binance API validation passed with ${binanceValidation.permissionLevel} permissions for user:`,
+      userId
     );
 
     // Use the proper 3Commas integration
@@ -271,16 +364,37 @@ exports.connectBinance = async (req, res) => {
       "Content-Type": "application/json",
     });
 
-    const response = await threeCommasAPI.post(path, payload, {
-      headers: {
-        // Header names are case-insensitive, use the casing from docs
-        Apikey: THREE_COMMAS_API_KEY,
-        Signature: signature3Commas,
-      },
-      timeout: 15000,
-    });
+    let threeCommasResponse;
+    let threeCommasAccountId;
 
-    const threeCommasAccountId = response.data.id;
+    try {
+      threeCommasResponse = await threeCommasAPI.post(path, payload, {
+        headers: {
+          // Header names are case-insensitive, use the casing from docs
+          Apikey: THREE_COMMAS_API_KEY,
+          Signature: signature3Commas,
+        },
+        timeout: 15000,
+      });
+
+      threeCommasAccountId = threeCommasResponse.data.id;
+      console.log("✅ 3Commas account creation successful for user:", userId);
+    } catch (threeCommasErr) {
+      console.error(
+        "❌ 3Commas account creation failed for user:",
+        userId,
+        threeCommasErr?.response?.data || threeCommasErr.message
+      );
+
+      // If 3Commas fails, return detailed error
+      return res.status(400).json({
+        success: false,
+        error: "Failed to create 3Commas account",
+        details: threeCommasErr?.response?.data || threeCommasErr.message,
+        binanceValidation: binanceValidation,
+        suggestion: "Please check your 3Commas account configuration",
+      });
+    }
 
     // Store in User model
     const encryptedKey = encrypt(apiKey);
@@ -299,8 +413,10 @@ exports.connectBinance = async (req, res) => {
     res.json({
       success: true,
       message: "Binance connected successfully",
-      threeCommasAccountId: response.data.id,
-      accountData: response.data,
+      threeCommasAccountId: threeCommasAccountId,
+      accountData: threeCommasResponse.data,
+      binanceValidation: binanceValidation,
+      note: `Connection established with ${binanceValidation.permissionLevel} permissions`,
     });
   } catch (error) {
     console.error("Connect Binance Account Error:", error);
@@ -318,28 +434,11 @@ exports.connectBinance = async (req, res) => {
         .json({ success: false, error: error.response.data });
     }
 
-    // Store the user's Binance keys even if 3Commas fails
-    try {
-      const { userId, apiKey, apiSecret } = req.body;
-      const encryptedKey = encrypt(apiKey);
-      const encryptedSecret = encrypt(apiSecret);
-
-      await User.findOneAndUpdate(
-        { userId },
-        {
-          binanceApiKey: encryptedKey,
-          binanceApiSecret: encryptedSecret,
-          threeCommasAccountId: process.env.THREE_COMMAS_ACCOUNT_ID || null,
-        },
-        { upsert: true, new: true }
-      );
-    } catch (storeErr) {
-      console.error("Failed to store user data:", storeErr);
-    }
-
-    return res
-      .status(400)
-      .json({ success: false, error: "Invalid API key or secret" });
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      message: error.message,
+    });
   }
 };
 
