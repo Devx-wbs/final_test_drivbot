@@ -41,7 +41,13 @@ async function verifyBinanceCredentials(apiKey, apiSecret) {
   }
 }
 
-async function createThreeCommasExchangeAccount({ name, apiKey, apiSecret }) {
+async function createThreeCommasExchangeAccount({
+  name,
+  apiKey,
+  apiSecret,
+  passphrase,
+  typesToCreate,
+}) {
   // 3Commas: create new exchange account. Endpoint commonly used:
   // POST /ver1/accounts/new
   // Body example for Binance: { name, type: "binance", api_key, secret, is_sandbox: false }
@@ -53,6 +59,13 @@ async function createThreeCommasExchangeAccount({ name, apiKey, apiSecret }) {
       secret: apiSecret,
     };
 
+    if (typeof passphrase === "string" && passphrase.length > 0) {
+      payload.passphrase = passphrase;
+    }
+    if (Array.isArray(typesToCreate) && typesToCreate.length > 0) {
+      payload.types_to_create = typesToCreate;
+    }
+
     const response = await threeCommas.post("/ver1/accounts/new", payload, {
       timeout: 20000,
     });
@@ -61,16 +74,19 @@ async function createThreeCommasExchangeAccount({ name, apiKey, apiSecret }) {
     const data = error?.response?.data;
     return {
       ok: false,
-      message: data || error.message,
       status: error?.response?.status,
+      error: data?.error,
+      error_description: data?.error_description || error.message,
       error_attributes: data?.error_attributes,
+      raw: data || null,
     };
   }
 }
 
 // Controllers
 exports.connectBinance = async (req, res) => {
-  const { userId, apiKey, apiSecret } = req.body || {};
+  const { userId, apiKey, apiSecret, passphrase, typesToCreate } =
+    req.body || {};
 
   if (!userId || !apiKey || !apiSecret) {
     return res
@@ -107,13 +123,20 @@ exports.connectBinance = async (req, res) => {
       name,
       apiKey,
       apiSecret,
+      passphrase,
+      typesToCreate,
     });
 
     if (!createAcc.ok) {
       // Keep credentials saved but report 3Commas failure
       return res.status(502).json({
         message: "Saved credentials, but failed to create 3Commas account",
-        threeCommasError: createAcc.message,
+        threeCommas: {
+          status: createAcc.status,
+          error: createAcc.error,
+          error_description: createAcc.error_description,
+          error_attributes: createAcc.error_attributes,
+        },
       });
     }
 
